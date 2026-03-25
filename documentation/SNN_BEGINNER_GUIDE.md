@@ -28,21 +28,11 @@ To understand why SNNs exist in the first place, you need to understand what's w
 
 > *The "~20W brain-scale" figure at the bottom refers to the human brain's power consumption. Current neuromorphic chips like Loihi consume milliwatts to single-digit watts — they're far smaller than brain-scale. The comparison is aspirational: a full brain-scale neuromorphic system might match the brain's 20W, versus ~250W for a GPU doing equivalent work.*
 
+> **Revision note:** This diagram could be improved by adding the reverse path — SNNs can be simulated on von Neumann hardware (GPU/CPU), but lose the efficiency advantage since the architectural gains (event-driven sparsity, co-located memory) don't apply. The current diagram shows ANN→SNN conversion as an input but not the VN↔NM hardware relationship explicitly.
+
 ### The von Neumann bottleneck
 
 Every conventional computer — your laptop, your GPU cluster, your phone — follows roughly the same architecture that John von Neumann described in the 1940s. There's a processing unit (CPU/GPU) and there's memory (RAM), and they're physically separate. Every computation requires shuttling data back and forth between the two.
-
-```mermaid
-graph LR
-    subgraph Von Neumann Architecture
-        CPU["CPU / GPU<br/>(Processing)"]
-        MEM["RAM<br/>(Memory)"]
-        CPU <-->|"Data Bus<br/>⚡ BOTTLENECK"| MEM
-    end
-
-    style CPU fill:#4a90d9,stroke:#2c5f8a,color:#fff
-    style MEM fill:#d94a4a,stroke:#8a2c2c,color:#fff
-```
 
 ![Von Neumann Architecture — CPU (Control Unit + ALU), Memory, Input/Output, connected via the system bus bottleneck](assets/01-von-neumann-architecture.jpeg)
 
@@ -55,26 +45,6 @@ This matters for neural networks specifically because: every weight lookup, ever
 Your brain runs on roughly 20 watts — a banana and a cup of coffee. It can recognize faces, navigate complex environments, and learn new motor skills in ways that still take massive GPU clusters hours to approximate. The reason isn't that neurons are faster than transistors (they're millions of times slower). It's the architecture.
 
 In a biological brain, there is no separation between memory and processing. Each synapse — the connection between two neurons — is both a computing element and a memory element simultaneously. A synapse processes signals *and* stores its own connection strength. There's no bus. There's no data transfer bottleneck. Everything is local.
-
-```mermaid
-graph TB
-    subgraph Biological / Neuromorphic Architecture
-        direction TB
-        N1["Neuron"]
-        N2["Neuron"]
-        N3["Neuron"]
-        N4["Neuron"]
-        N1 <-->|"Synapse<br/>(compute + memory)"| N2
-        N1 <-->|"Synapse<br/>(compute + memory)"| N3
-        N2 <-->|"Synapse<br/>(compute + memory)"| N4
-        N3 <-->|"Synapse<br/>(compute + memory)"| N4
-    end
-
-    style N1 fill:#6ab04c,stroke:#3a7a1c,color:#fff
-    style N2 fill:#6ab04c,stroke:#3a7a1c,color:#fff
-    style N3 fill:#6ab04c,stroke:#3a7a1c,color:#fff
-    style N4 fill:#6ab04c,stroke:#3a7a1c,color:#fff
-```
 
 The key differences:
 
@@ -102,20 +72,6 @@ Think of it as a tiny variable resistor that programs itself. In the HP Labs dev
 
 Electrically, a standard resistor traces the same straight line on a current-voltage plot no matter how many times you cycle it. A memristor traces a **hysteresis loop** — the current you get going up is different from the current going down, because the device itself has changed. That hysteresis *is* the memory.
 
-```mermaid
-graph LR
-    subgraph Standard Resistor
-        R["V = IR<br/>No memory<br/>Same line every cycle"]
-    end
-    subgraph Memristor
-        M["Resistance depends on<br/>history of current flow<br/>Hysteresis loop = memory"]
-    end
-    R --->|"Add memory"| M
-
-    style R fill:#888,stroke:#555,color:#fff
-    style M fill:#e67e22,stroke:#a35400,color:#fff
-```
-
 ![Memristor: Memory + Resistor — a traditional resistor (fixed, no memory) vs a memristor (variable resistance, remembers through hysteresis)](assets/05-memristor-memory-plus-resistor.jpeg)
 
 ![What is a Memristor — the grass path analogy: repeated current wears a lasting trail in resistance, just as footsteps wear a path that persists after you stop walking](assets/06-what-is-a-memristor.jpeg)
@@ -137,19 +93,6 @@ Here's where the pieces connect:
 **Neuromorphic hardware** (Loihi, TrueNorth, memristor-based chips) provides the physical substrate — processors where memory and computation are co-located, communication is event-driven, and energy scales with activity rather than clock speed.
 
 **Spiking neural networks** are the computational model that runs natively on this substrate. SNNs communicate through discrete spikes, just like the voltage pulses that program memristors and the action potentials that trigger neurotransmitter release in biological synapses. The spike-driven, event-based nature of SNNs maps directly onto hardware where computation only happens when an event arrives — no clock cycle wasted on silent neurons.
-
-```mermaid
-graph TB
-    VN["Von Neumann<br/>CPU + RAM + Bus"] -->|"runs"| ANN["Conventional ANNs<br/>Dense matrix ops, continuous activations"]
-    NM["Neuromorphic Hardware<br/>Co-located compute + memory"] -->|"runs natively"| SNN["Spiking Neural Networks<br/>Event-driven spikes, temporal dynamics"]
-    ANN -->|"can be converted to"| SNN
-    SNN -->|"can be simulated on<br/>(but loses efficiency advantage)"| VN
-
-    style VN fill:#4a90d9,stroke:#2c5f8a,color:#fff
-    style NM fill:#6ab04c,stroke:#3a7a1c,color:#fff
-    style ANN fill:#7a7adb,stroke:#4a4aab,color:#fff
-    style SNN fill:#e67e22,stroke:#a35400,color:#fff
-```
 
 This is why "SNNs are more efficient" is a conditional statement. An SNN running on neuromorphic hardware with sparse, event-driven input can be radically more efficient than a GPU-based ANN — because the hardware eliminates the memory bottleneck and only spends energy on active neurons. The same SNN simulated on a conventional GPU gets none of those architectural advantages. The efficiency comes from the combination of the computational model (spikes) and the hardware (co-located memory+compute), not from either one alone.
 
