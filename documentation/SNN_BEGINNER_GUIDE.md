@@ -108,9 +108,29 @@ If you look at AI hardware chronologically, each generation has moved closer to 
 
 Each step increased parallelism and decreased energy per inference. But the neuromorphic step also changes the communication model. Conventional chips synchronize everything to a global clock — every core does work on every cycle whether there's input or not, and synchronizing thousands of cores is itself expensive. Neuromorphic chips use asynchronous, event-driven communication: a core sits idle until a spike arrives, processes it, and goes back to sleep. No global clock, no wasted cycles on silence. Scaling happens by tiling more cores rather than increasing clock speed, which is why power consumption grows slowly as networks get larger — a property that matters enormously for deploying large models.
 
-## The spiking neuron
+### Neuromorphic chips and benchmarks
 
-### Leaky integrate-and-fire (LIF)
+**IBM TrueNorth** (Merolla et al., 2014): historically important, demonstrated large-scale low-power spike hardware with a million neurons. More of a proof point than a current development platform.
+
+**Intel Loihi / Loihi 2**: the most active neuromorphic research platform right now. Supports on-chip learning, asynchronous spike processing, and has an associated software stack (Lava). Relevant if you're targeting actual neuromorphic deployment.
+
+**SpiNNaker** (Furber et al., 2013): massively parallel, designed for large-scale neuroscience simulation. More academic/neuroscience-focused than ML-focused.
+
+**BrainChip Akida**: commercial neuromorphic chip aimed at edge AI. Less prominent in the research literature but relevant for commercial deployment.
+
+The critical thing to understand: when a paper claims "10x energy efficiency," that claim is about a specific model, on a specific chip, with a specific sparsity level, on a specific workload. It is not a general property of SNNs. An SNN on a GPU can easily be *less* efficient than a well-optimized ANN on the same GPU.
+
+That said, the measured numbers on appropriate workloads are striking. On a keyword-spotting task (a real-time speech application — exactly the kind of dynamic processing neuromorphic chips target), a spiking network on Intel Loihi used 109x less energy per inference than an NVIDIA GPU, 23x less than an Intel CPU, and 5x less than dedicated edge-inference hardware (Intel Movidius NCS2) — all running the same network architecture with matched accuracy (SNN 93.8% vs ANN 92.7%). These are measured end-to-end numbers, not theoretical TOPS/watt estimates. The distinction matters: TOPS/watt figures (trillion operations per second per watt) are computed from single-operation energy costs and extrapolated to expected workloads. Nobody who has gotten a TOPS/watt number and then run an actual application on the hardware has achieved it. Real system measurements account for data movement, pipeline overhead, and all the things that theoretical estimates miss.
+
+The scaling behavior is equally important. When the keyword-spotting network was scaled 50x in size, Loihi's power consumption increased by roughly 20%. The best non-spiking edge hardware (Intel Movidius) increased by roughly 500% for the same scaling. Neuromorphic hardware scales by tiling additional cores, each independently efficient; conventional hardware hits memory bandwidth and synchronization walls as networks grow. This is a research chip without the standard power-optimization techniques applied to the commercial hardware it was compared against, so the gap should only widen.
+
+Think of spiking as another dial in your optimization. It lets you trade between power efficiency and accuracy. In many cases you get the same accuracy with dramatically less power — a free win. In some cases you lose a fraction of a percent in accuracy and save 10x in energy, and whether that trade is worth it depends entirely on the application. It is not a guaranteed improvement for every workload, but it is a real and measurable one for the workloads that suit it.
+
+## How spiking neural networks work
+
+### The spiking neuron
+
+#### Leaky integrate-and-fire (LIF)
 
 This is the workhorse neuron model in ML-oriented SNN work. It does three things: accumulate input, leak toward a resting potential, and fire when threshold is crossed.
 
@@ -134,7 +154,7 @@ $\beta \in (0,1)$ controls leak (how fast state decays), $x_t$ is input at times
 
 After spiking, the neuron may hard-reset to rest or soft-reset by subtracting $\theta$. Some models add a **refractory period** — a brief window after spiking where the neuron can't fire again. These details affect firing rate, sparsity, and gradient flow during training.
 
-### Other neuron models
+#### Other neuron models
 
 **Izhikevich.** Two coupled equations that can reproduce ~20 different biological firing patterns (bursting, chattering, fast-spiking, etc.) at modest computational cost. Useful when you want richer dynamics than LIF but don't want to go full biophysical. Less common in deep SNN training pipelines because the tooling hasn't standardized around it, but dominant in large-scale biological modeling — a full-scale model of the mouse hippocampal CA3 region (80,000 neurons, 250 million synapses, 8 morpho-chemically identified cell types) used Izhikevich neurons precisely because they can reproduce the full diversity of hippocampal firing patterns (adaptive spiking, regular spiking, bursting, stuttering) through simple parameter tuning, while remaining computationally efficient enough to simulate on GPUs via CARLsim.
 
@@ -144,13 +164,13 @@ After spiking, the neuron may hard-reset to rest or soft-reset by subtracting $\
 
 Start with LIF. Move to something else only when LIF provably can't do what you need.
 
-### Synapses
+#### Synapses
 
 In simple ML setups, an incoming spike becomes a weighted addition to the downstream neuron's membrane potential — same as a weight times an input. In more detailed models, synaptic currents have their own dynamics: exponential rise, exponential decay, or alpha-function shapes. This gives the network additional temporal memory beyond what's in the neuron state. The time constants of synapses and neurons together determine what temporal scales the network is sensitive to.
 
 Biologically detailed models go further with **short-term synaptic plasticity** (STP) — the Tsodyks-Markram formalism, where synaptic strength changes dynamically depending on recent presynaptic activity. A synapse can facilitate (get temporarily stronger with rapid firing) or depress (get temporarily weaker). STP is distinct from long-term learning rules like STDP; it's a fast, reversible mechanism that shapes network dynamics on the timescale of tens to hundreds of milliseconds. In the CA3 hippocampus model mentioned above, STP fitted from experimental data was essential for reproducing realistic circuit dynamics — the network maintained stable chaotic activity without saturating or dying, a property that depends critically on having the right short-term synaptic properties for each of 51 distinct connection types.
 
-## Spike coding: where does information live?
+### Spike coding: where does information live?
 
 With continuous activations gone, information has to be encoded in the timing and pattern of spikes. There are several schemes, and the choice matters more than beginners expect.
 
@@ -164,7 +184,7 @@ With continuous activations gone, information has to be encoded in the timing an
 
 For a first project: use rate coding or Poisson encoding for static data, and use native event streams if your data comes from an event sensor.
 
-## Encoding non-spike inputs
+### Encoding non-spike inputs
 
 If your data isn't already spikes (and it usually isn't), you need to convert it.
 
@@ -180,7 +200,7 @@ If your data isn't already spikes (and it usually isn't), you need to convert it
 
 Start with whatever your framework tutorial uses. Poisson encoding is the most common default for static datasets.
 
-## Network architecture
+### Network architecture
 
 SNN architectures look familiar: fully-connected layers, convolutional layers, recurrent connections, pooling. The difference is that each layer's "activation function" is replaced by spiking neuron dynamics running across timesteps.
 
@@ -277,24 +297,6 @@ SNNs are oversold in some contexts. Here's an honest assessment.
 **Computational neuroscience and brain modeling** is where SNNs are not competing with ANNs but rather are the only appropriate tool. If the goal is to understand how biological circuits compute — not to classify images — then biologically realistic SNNs are the model, not an optimization target. A full-scale model of the mouse hippocampal CA3 (80,000 Izhikevich neurons, 250M synapses, 386 experimentally derived parameters from hippocampome.org) demonstrated pattern completion via cell assemblies: training with theta-locked STDP, retrieval from partial cues, and emergent firing patterns matching in vivo recordings. This was run on GPUs using CARLsim, with a neuromorphic hardware implementation as a parallel research track. The simulation ran at roughly 1:10 real-time (1 second of biological time takes ~10 seconds to compute), which is fast enough to run many parameter sweeps per hour but not real-time. Models like this are where the neuroscience of memory, the biophysics of synapses, and the engineering of large-scale SNN simulation converge — and they produce testable predictions about how specific inhibitory cell types (basket cells, axo-axonic cells, OLM cells, ivy cells) shape memory formation and retrieval.
 
 **Static image classification on GPU** is where SNNs are weakest. You have to encode images into spikes, simulate across timesteps, and deal with more complex training — all for results that rarely beat a standard CNN. Don't reach for an SNN here unless you have a specific reason (neuromorphic deployment, power constraints, event sensors).
-
-## Neuromorphic hardware
-
-**IBM TrueNorth** (Merolla et al., 2014): historically important, demonstrated large-scale low-power spike hardware with a million neurons. More of a proof point than a current development platform.
-
-**Intel Loihi / Loihi 2**: the most active neuromorphic research platform right now. Supports on-chip learning, asynchronous spike processing, and has an associated software stack (Lava). Relevant if you're targeting actual neuromorphic deployment.
-
-**SpiNNaker** (Furber et al., 2013): massively parallel, designed for large-scale neuroscience simulation. More academic/neuroscience-focused than ML-focused.
-
-**BrainChip Akida**: commercial neuromorphic chip aimed at edge AI. Less prominent in the research literature but relevant for commercial deployment.
-
-The critical thing to understand: when a paper claims "10x energy efficiency," that claim is about a specific model, on a specific chip, with a specific sparsity level, on a specific workload. It is not a general property of SNNs. An SNN on a GPU can easily be *less* efficient than a well-optimized ANN on the same GPU.
-
-That said, the measured numbers on appropriate workloads are striking. On a keyword-spotting task (a real-time speech application — exactly the kind of dynamic processing neuromorphic chips target), a spiking network on Intel Loihi used 109x less energy per inference than an NVIDIA GPU, 23x less than an Intel CPU, and 5x less than dedicated edge-inference hardware (Intel Movidius NCS2) — all running the same network architecture with matched accuracy (SNN 93.8% vs ANN 92.7%). These are measured end-to-end numbers, not theoretical TOPS/watt estimates. The distinction matters: TOPS/watt figures (trillion operations per second per watt) are computed from single-operation energy costs and extrapolated to expected workloads. Nobody who has gotten a TOPS/watt number and then run an actual application on the hardware has achieved it. Real system measurements account for data movement, pipeline overhead, and all the things that theoretical estimates miss.
-
-The scaling behavior is equally important. When the keyword-spotting network was scaled 50x in size, Loihi's power consumption increased by roughly 20%. The best non-spiking edge hardware (Intel Movidius) increased by roughly 500% for the same scaling. Neuromorphic hardware scales by tiling additional cores, each independently efficient; conventional hardware hits memory bandwidth and synchronization walls as networks grow. This is a research chip without the standard power-optimization techniques applied to the commercial hardware it was compared against, so the gap should only widen.
-
-Think of spiking as another dial in your optimization. It lets you trade between power efficiency and accuracy. In many cases you get the same accuracy with dramatically less power — a free win. In some cases you lose a fraction of a percent in accuracy and save 10x in energy, and whether that trade is worth it depends entirely on the application. It is not a guaranteed improvement for every workload, but it is a real and measurable one for the workloads that suit it.
 
 ## Frameworks
 
